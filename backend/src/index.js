@@ -31,8 +31,27 @@ app.use("/api/orders", ordersRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/analytics", analyticsRoutes);
 
-app.get("/api/health", (req, res) => res.json({ ok: true, ts: new Date() }));
+// ✅ added: universal health & root routes
+app.get("/health", (req, res) =>
+  res.status(200).json({
+    ok: true,
+    env: process.env.NODE_ENV || "not-set",
+    ts: new Date().toISOString(),
+  })
+);
 
+app.get("/", (req, res) => {
+  res.send(`
+    <html><body style="font-family: sans-serif;">
+      <h1>pos-resto backend</h1>
+      <p>✅ Connected & running</p>
+      <p>Time: ${new Date().toISOString()}</p>
+      <p><a href="/health">Health Check</a></p>
+    </body></html>
+  `);
+});
+
+// ✅ make sure PORT uses Render's dynamic port
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/pos_resto";
@@ -57,9 +76,8 @@ mongoose
       );
     }
 
-    app.listen(PORT, () =>
-      console.log(`🚀 Server running on http://localhost:${PORT}`)
-    );
+    // ✅ log the dynamic URL (will use Render port in production)
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((err) => {
     console.error("Mongo connection error:", err);

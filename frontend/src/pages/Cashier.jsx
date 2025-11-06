@@ -244,7 +244,7 @@ export default function Cashier() {
             </button>
           </li>
         ))}
-        <li className="nav-item">
+        {/* <li className="nav-item">
           <button
             className={`nav-link ${activeCat === "uncat" ? "active" : ""}`}
             type="button"
@@ -252,7 +252,7 @@ export default function Cashier() {
           >
             Tanpa Kategori
           </button>
-        </li>
+        </li> */}
       </ul>
     );
   }

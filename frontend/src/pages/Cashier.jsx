@@ -13,10 +13,26 @@ import {
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 const ORDER_TYPES = ["dine in", "takeaway", "grabfood", "shopeefood", "gofood"];
 
-// Helper to get category name from id
-function getCategoryName(catId, categories) {
-  if (!catId || !categories) return "";
-  const c = categories.find((x) => String(x._id) === String(catId));
+// Helper: normalize category value (can be object or id string)
+function getCategoryId(cat) {
+  if (!cat) return null;
+  if (typeof cat === "object") return String(cat._id ?? cat.id ?? "");
+  return String(cat);
+}
+
+// Helper to get category name from id or object
+function getCategoryName(catOrId, categories) {
+  if (!catOrId || !categories) return "";
+  // if passed an object
+  if (typeof catOrId === "object") {
+    return (
+      catOrId.name ||
+      categories.find((x) => String(x._id) === String(catOrId._id))?.name ||
+      ""
+    );
+  }
+  // otherwise treat as id string
+  const c = categories.find((x) => String(x._id) === String(catOrId));
   return c ? c.name : "";
 }
 
@@ -36,6 +52,17 @@ export default function Cashier() {
   const [modalMessage, setModalMessage] = useState("");
   const [lastOrder, setLastOrder] = useState(null);
 
+  // ensure activeCat stays valid when categories load/change
+  useEffect(() => {
+    if (activeCat === "all" || activeCat === "uncat") return;
+    // if current activeCat not found in categories, reset to "all"
+    const found = categories.find((c) => String(c._id) === String(activeCat));
+    if (!found && categories.length > 0) {
+      setActiveCat("all");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories]);
+
   // debounce search
   useEffect(() => {
     const t = setTimeout(
@@ -49,7 +76,11 @@ export default function Cashier() {
   function productsFor(catId) {
     if (catId === "all") return products ?? [];
     if (catId === "uncat") return (products ?? []).filter((p) => !p.category);
-    return (products ?? []).filter((p) => String(p.category) === String(catId));
+    // normalize product.category to id and compare
+    return (products ?? []).filter((p) => {
+      const pid = getCategoryId(p.category);
+      return String(pid) === String(catId);
+    });
   }
 
   const visibleProducts = useMemo(() => {

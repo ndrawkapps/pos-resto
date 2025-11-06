@@ -1,64 +1,69 @@
-// frontend/src/contexts/ProductContext.jsx
-import React, { createContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useEffect, useState } from "react";
 import axios from "axios";
 
-export const ProductCtx = createContext();
+const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-export default function ProductProvider({ children }) {
+export const ProductCtx = createContext({
+  products: [],
+  categories: [],
+  loading: false,
+  refresh: async () => {},
+});
+
+export function ProductProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        const [pRes, cRes] = await Promise.all([
-          axios.get(API + "/api/products"),
-          axios.get(API + "/api/categories"),
-        ]);
-        // backend returns { data: [...], meta: {...} } for lists
-        const ps = pRes.data?.data ?? pRes.data ?? [];
-        const cs = cRes.data?.data ?? cRes.data ?? [];
-        if (!mounted) return;
-        setProducts(ps);
-        setCategories(cs);
-
-        // small debug hook you can inspect in browser console
-        window.__PRODUCT_CTX = { products: ps, categories: cs };
-        console.log("[ProductProvider] products response:", pRes.data);
-        console.log("[ProductProvider] categories response:", cRes.data);
-      } catch (e) {
-        console.error("ProductProvider load error", e);
-      }
-    }
-    load();
-    return () => (mounted = false);
-  }, []);
-
-  // helper to refresh lists (call after CRUD)
-  async function refresh() {
-    try {
-      const [pRes, cRes] = await Promise.all([
-        axios.get(API + "/api/products"),
-        axios.get(API + "/api/categories"),
-      ]);
-      setProducts(pRes.data?.data ?? pRes.data ?? []);
-      setCategories(cRes.data?.data ?? cRes.data ?? []);
-      window.__PRODUCT_CTX = {
-        products: pRes.data?.data ?? pRes.data ?? [],
-        categories: cRes.data?.data ?? cRes.data ?? [],
-      };
-    } catch (e) {
-      console.error("refresh error", e);
-    }
+  // Helper: normalize categories response to always be an array
+  function normalizeCategoriesResp(respData) {
+    if (!respData) return [];
+    if (Array.isArray(respData)) return respData;
+    if (Array.isArray(respData.data)) return respData.data;
+    return [];
   }
 
+  // fetch both products and categories; used on mount and after changes
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pRes, cRes] = await Promise.all([
+        axios.get(`${API}/api/products`),
+        axios.get(`${API}/api/categories`),
+      ]);
+
+      // Products: usually array in pRes.data
+      const p = Array.isArray(pRes.data)
+        ? pRes.data
+        : Array.isArray(pRes.data?.data)
+        ? pRes.data.data
+        : [];
+      setProducts(p);
+
+      const c = normalizeCategoriesResp(cRes.data);
+      setCategories(c);
+    } catch (err) {
+      console.error("fetchAll error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // refresh function for consumers
+  const refresh = useCallback(async () => {
+    await fetchAll();
+  }, [fetchAll]);
+
   return (
-    <ProductCtx.Provider
-      value={{ products, setProducts, categories, setCategories, refresh }}
-    >
+    <ProductCtx.Provider value={{ products, categories, loading, refresh }}>
       {children}
     </ProductCtx.Provider>
   );
 }
+
+// Add default export so existing main.jsx that imports default won't break
+export default ProductProvider;

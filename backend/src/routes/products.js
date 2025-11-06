@@ -1,117 +1,224 @@
 // backend/src/routes/products.js
 import express from "express";
+import mongoose from "mongoose";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
 import Product from "../models/Product.js";
+import Category from "../models/Category.js";
+
 const router = express.Router();
 
-/**
- * GET /api/products?q=&page=&limit=&category=
- * returns { data: [...], meta: { total, page, limit } }
- */
+// uploads directory relative to project root (index.js serves /uploads statically)
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Multer storage: unique filename
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || "";
+    const name = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    cb(null, name);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed"));
+    }
+    cb(null, true);
+  },
+});
+
+// safe unlink
+function tryUnlink(fp) {
+  try {
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  } catch (e) {
+    console.warn("unlink err", e?.message || e);
+  }
+}
+
+// GET all
 router.get("/", async (req, res) => {
   try {
-    const q = (req.query.q || "").trim();
-    const category = (req.query.category || "").trim();
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(200, Number(req.query.limit) || 50);
-
-    const filter = {};
-    if (category) filter["category"] = category; // expecting category id or name depending model
-    if (q) {
-      const regex = new RegExp(q, "i");
-      filter.$or = [{ name: regex }, { description: regex }];
-    }
-
-    const total = await Product.countDocuments(filter);
-    const items = await Product.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
-
-    res.json({ data: items, meta: { total, page, limit } });
+    const products = await Product.find().populate("category");
+    res.json(products);
   } catch (err) {
-    console.error("GET /api/products error:", err);
-    res.status(500).json({ error: "server error" });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch products", details: err.message });
   }
 });
 
-/**
- * GET /api/products/:id
- * return product detail
- */
+// GET one
 router.get("/:id", async (req, res) => {
   try {
-    const p = await Product.findById(req.params.id).lean();
-    if (!p) return res.status(404).json({ error: "product not found" });
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ error: "invalid id" });
+    const p = await Product.findById(id).populate("category");
+    if (!p) return res.status(404).json({ error: "not found" });
     res.json(p);
   } catch (err) {
-    console.error("GET /api/products/:id err:", err);
-    if (err.name === "CastError")
-      return res.status(400).json({ error: "invalid id" });
-    res.status(500).json({ error: "server error" });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch product", details: err.message });
   }
 });
 
 /**
- * POST /api/products
- * create product (admin)
+ * CREATE (multipart/form-data)
+ * fields: name, price, category (optional), available (optional)
+ * file: image (optional)
  */
-router.post("/", async (req, res) => {
+router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const payload = req.body || {};
-    // minimal validation
-    if (!payload.name) return res.status(400).json({ error: "name required" });
+    const { name, price, category = null, available = "true" } = req.body;
+
+    if (!name || price === undefined) {
+      if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+      return res.status(400).json({ error: "name and price are required" });
+    }
+
+    const priceNum = Number(price);
+    if (Number.isNaN(priceNum)) {
+      if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+      return res.status(400).json({ error: "price must be a number" });
+    }
+
+    if (category) {
+      if (!mongoose.Types.ObjectId.isValid(category)) {
+        if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+        return res.status(400).json({ error: "invalid category id" });
+      }
+      const catExists = await Category.findById(category).select("_id");
+      if (!catExists) {
+        if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+        return res.status(400).json({ error: "category not found" });
+      }
+    }
+
+    const imageFilename = req.file ? req.file.filename : null;
 
     const p = new Product({
-      name: payload.name,
-      description: payload.description || "",
-      price: payload.price || 0,
-      category: payload.category || null,
-      image: payload.image || null,
-      available:
-        payload.available !== undefined ? Boolean(payload.available) : true,
+      name,
+      price: priceNum,
+      category,
+      image: imageFilename,
+      available: available === "false" || available === false ? false : true,
     });
+
     await p.save();
+    await p.populate("category");
     res.status(201).json(p);
   } catch (err) {
-    console.error("create product err:", err);
-    res.status(400).json({ error: err.message || "bad request" });
+    if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+    res
+      .status(500)
+      .json({ error: "Failed to create product", details: err.message });
   }
 });
 
 /**
- * PUT /api/products/:id
+ * UPDATE (multipart/form-data)
+ * - if an "image" file is provided, it replaces the old image (old file deleted)
+ * - if no file provided, existing image remains
  */
-router.put("/:id", async (req, res) => {
+router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const payload = req.body || {};
-    const updated = await Product.findByIdAndUpdate(req.params.id, payload, {
-      new: true,
-      runValidators: true,
-    }).lean();
-    if (!updated) return res.status(404).json({ error: "product not found" });
-    res.json(updated);
-  } catch (err) {
-    console.error("update product err:", err);
-    if (err.name === "CastError")
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
       return res.status(400).json({ error: "invalid id" });
-    res.status(400).json({ error: err.message || "bad request" });
+    }
+
+    const allowed = ["name", "price", "category", "available"];
+    const update = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) update[k] = req.body[k];
+    }
+
+    if (update.price !== undefined) {
+      const n = Number(update.price);
+      if (Number.isNaN(n)) {
+        if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+        return res.status(400).json({ error: "price must be a number" });
+      }
+      update.price = n;
+    }
+
+    if (update.category) {
+      if (!mongoose.Types.ObjectId.isValid(update.category)) {
+        if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+        return res.status(400).json({ error: "invalid category id" });
+      }
+      const catExists = await Category.findById(update.category).select("_id");
+      if (!catExists) {
+        if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+        return res.status(400).json({ error: "category not found" });
+      }
+    }
+
+    if (update.available !== undefined) {
+      update.available =
+        update.available === "false" || update.available === false
+          ? false
+          : true;
+    }
+
+    if (req.file) update.image = req.file.filename;
+
+    const prev = await Product.findById(id);
+    if (!prev) {
+      if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+      return res.status(404).json({ error: "not found" });
+    }
+
+    const p = await Product.findByIdAndUpdate(id, update, {
+      new: true,
+    }).populate("category");
+
+    // delete old image if replaced
+    if (req.file && prev.image) {
+      const oldPath = path.join(uploadsDir, prev.image);
+      if (fs.existsSync(oldPath) && prev.image !== req.file.filename) {
+        tryUnlink(oldPath);
+      }
+    }
+
+    res.json(p);
+  } catch (err) {
+    if (req.file) tryUnlink(path.join(uploadsDir, req.file.filename));
+    res
+      .status(500)
+      .json({ error: "Failed to update product", details: err.message });
   }
 });
 
-/**
- * DELETE /api/products/:id
- */
+// DELETE
 router.delete("/:id", async (req, res) => {
   try {
-    const p = await Product.findByIdAndDelete(req.params.id).lean();
-    if (!p) return res.status(404).json({ error: "product not found" });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("delete product err:", err);
-    if (err.name === "CastError")
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
       return res.status(400).json({ error: "invalid id" });
-    res.status(500).json({ error: "server error" });
+
+    const p = await Product.findByIdAndDelete(id);
+    if (!p) return res.status(404).json({ error: "not found" });
+
+    if (p.image) {
+      const fp = path.join(uploadsDir, p.image);
+      if (fs.existsSync(fp)) tryUnlink(fp);
+    }
+
+    res.json({ ok: true, deleted: p });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ error: "Failed to delete product", details: err.message });
   }
 });
 

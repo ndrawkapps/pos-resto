@@ -1,0 +1,21 @@
+﻿# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# System
+.DS_Store
+.vscode/
+
+# Uploads folder (backend)
+uploads/

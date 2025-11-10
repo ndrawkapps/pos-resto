@@ -28,6 +28,9 @@ export default function Beranda() {
   const [timeOfDay, setTimeOfDay] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
+  // today's cash register balance
+  const [todayBalance, setTodayBalance] = useState(null);
+
   // ref + size detection to avoid Recharts width(-1)/height(-1)
   const wrapperRef = useRef(null);
   const [hasSize, setHasSize] = useState(false);
@@ -52,12 +55,23 @@ export default function Beranda() {
   async function loadAll() {
     setLoaded(false);
     try {
+      const token = localStorage.getItem("token");
       const [s, tp, m, bc, tod] = await Promise.all([
-        axios.get(`${API}/api/analytics/summary`),
-        axios.get(`${API}/api/analytics/top-products?limit=6`),
-        axios.get(`${API}/api/analytics/monthly`),
-        axios.get(`${API}/api/analytics/by-cashier`),
-        axios.get(`${API}/api/analytics/time-of-day`),
+        axios.get(`${API}/api/analytics/summary`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
+        axios.get(`${API}/api/analytics/top-products?limit=6`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
+        axios.get(`${API}/api/analytics/monthly`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
+        axios.get(`${API}/api/analytics/by-cashier`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
+        axios.get(`${API}/api/analytics/time-of-day`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
       ]);
       setSummary(s.data ?? null);
       setTopProducts(tp.data?.data ?? tp.data ?? []);
@@ -73,6 +87,31 @@ export default function Beranda() {
       setTimeOfDay([]);
     } finally {
       setLoaded(true);
+      // always try to fetch today's balance after analytics load
+      fetchTodayBalance();
+    }
+  }
+
+  async function fetchTodayBalance() {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API}/api/cashregisters/today`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (res.data?.exists && res.data.record) {
+        // prefer explicit balance field, fallback to openingAmount
+        setTodayBalance(
+          res.data.record.balance ?? res.data.record.openingAmount ?? 0
+        );
+      } else {
+        setTodayBalance(null);
+      }
+    } catch (err) {
+      console.warn(
+        "fetchTodayBalance err:",
+        err?.response?.data || err.message || err
+      );
+      setTodayBalance(null);
     }
   }
 
@@ -120,7 +159,21 @@ export default function Beranda() {
 
   return (
     <div className="mt-4" ref={wrapperRef}>
-      <h4 className="fw-semibold text-primary mb-4">📊 Analitik Penjualan</h4>
+      <div className="d-flex align-items-center justify-content-between mb-3">
+        <h4 className="fw-semibold text-primary mb-0">📊 Analitik Penjualan</h4>
+        <div style={{ textAlign: "right" }}>
+          <div className="text-muted" style={{ fontSize: 12 }}>
+            Sisa modal hari ini
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>
+            {todayBalance == null ? (
+              <small className="text-muted">—</small>
+            ) : (
+              `Rp ${fmt(todayBalance)}`
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="row g-3 mb-3">
         <div className="col-6 col-md-3">

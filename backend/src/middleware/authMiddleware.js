@@ -1,23 +1,37 @@
-const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "secret123";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  "bdHq4ZP$X7xF!9wzKk@E2jNf3tLqG5cA7vV8mY1rH6pD9uR3bC";
 
-function verifyToken(req, res, next) {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(403).json({ message: "Token tidak ada" });
-
+export async function verifyToken(req, res, next) {
   try {
-    const decoded = jwt.verify(token.split(" ")[1], JWT_SECRET);
-    req.user = decoded;
+    const authHeader = req.headers["authorization"] || "";
+    console.log("AUTH HEADER:", authHeader);
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : authHeader;
+    console.log("TOKEN:", token);
+
+    if (!token) return res.status(403).json({ message: "Token tidak ada" });
+
+    // optional: inspect token without verifying
+    try {
+      const dec = jwt.decode(token, { complete: true });
+      console.log("DECODED (unverified):", dec);
+    } catch (e) {}
+
+    const decoded = jwt.verify(token, JWT_SECRET); // throws if invalid
+    if (!decoded || !decoded.id)
+      return res.status(401).json({ message: "Token tidak valid" });
+
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) return res.status(401).json({ message: "User tidak ditemukan" });
+
+    req.user = user;
     next();
   } catch (err) {
-    res.status(401).json({ message: "Token tidak valid" });
+    console.error("verifyToken err:", err.message || err);
+    return res.status(401).json({ message: "Token tidak valid" });
   }
 }
-
-function isAdmin(req, res, next) {
-  if (req.user.role !== "admin")
-    return res.status(403).json({ message: "Akses ditolak: hanya admin" });
-  next();
-}
-
-module.exports = { verifyToken, isAdmin };

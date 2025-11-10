@@ -3,7 +3,7 @@
 /* ========================= */
 
 :root {
-  --navbar-height: 90px; /* tinggi navbar */
+  --navbar-height: 90px;
 }
 
 body {
@@ -11,6 +11,7 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial;
   background-color: #fff;
+  margin: 0;
 }
 
 /* ========================= */
@@ -52,19 +53,39 @@ body {
 }
 
 /* ========================= */
-/* 📱 RESPONSIVE TABLES */
+/* 🧱 MAIN CONTENT: NO PADDING, NO MARGIN */
 /* ========================= */
 
-.table-responsive {
-  margin-top: 0.5rem;
+.main-content,
+main.container-fluid {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  min-height: calc(100vh - var(--navbar-height));
+  background-color: #fff;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box;
 }
 
-.card-title {
-  margin-bottom: 1rem;
+/* Hilangkan semua jarak di dalam main container */
+.main-content .container,
+.main-content .container-fluid,
+main.container-fluid .container,
+main.container-fluid .container-fluid {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Pastikan konten tidak terhalang navbar */
+body {
+  padding-top: var(--navbar-height);
 }
 
 /* ========================= */
-/* 🧱 SIDEBAR LAYOUT */
+/* 🧾 SIDEBAR LAYOUT (optional) */
 /* ========================= */
 
 .sidebar {
@@ -80,15 +101,14 @@ body {
   overflow-y: auto;
 }
 
-/* Sidebar hidden (mobile) */
 .sidebar.translate-hide {
   transform: translateX(-100%);
 }
+
 .sidebar.translate-show {
   transform: translateX(0);
 }
 
-/* Sidebar tetap tampil di layar besar */
 @media (min-width: 768px) {
   .sidebar {
     transform: translateX(0) !important;
@@ -96,34 +116,101 @@ body {
 }
 
 /* ========================= */
-/* 🧾 MAIN CONTENT */
+/* 🧭 UTILITIES */
 /* ========================= */
 
-main.container-fluid,
-.main-content {
-  transition: margin 0.3s ease-in-out;
-  position: relative;
-  z-index: 1;
-
-  /* ✅ HILANGKAN PADDING KIRI-KANAN */
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+.navbar {
+  z-index: 1050;
 }
 
-/* Saat layar besar, beri jarak kiri untuk sidebar */
-@media (min-width: 768px) {
-  .main-content {
+.modal {
+  z-index: 2000;
+}
+
+.table-responsive {
+  margin-top: 0.5rem;
+}
+
+/* minimal global + login styles for hotfix */
+
+:root {
+  --navbar-height: 90px;
+}
+
+/* ensure page uses full height and navbar padding kept except on login */
+body {
+  padding-top: var(--navbar-height);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  margin: 0;
+}
+
+/* main content no padding */
+.main-content,
+main.container-fluid {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100%;
+}
+
+/* login full page wrapper */
+.login-wrapper,
+.full-page {
+  height: 100vh !important;
+  min-height: 100vh !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fb;
+  padding-top: 0 !important;
+}
+
+/* center card container */
+.login-wrapper .card {
+  margin: 0 auto;
+}
+
+/* make inputs & buttons full width on small screens */
+@media (max-width: 576px) {
+  .login-wrapper {
+    padding: 1rem;
+  }
+  .login-wrapper .card {
+    width: 100%;
   }
 }
 
-/* Saat layar kecil, sidebar jadi offcanvas tanpa margin kiri */
-@media (max-width: 767px) {
-  .main-content {
-  }
+/* ========================= */
+/* 📊 CHART HELPERS */
+/* ========================= */
+
+.chart-container {
+  width: 100%;
+  height: 320px;
+  min-height: 240px;
+  display: block;
+}
+
+.chart-container .d-flex.h-100 {
+  height: 100%;
 }
 
 /* ========================= */
-/* 📱 SMALL SCREEN ADJUSTMENTS */
+/* 🧭 Z-INDEX FIXES */
+/* ========================= */
+
+.modal-backdrop-custom {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1040;
+}
+
+.modal-custom {
+  z-index: 1050;
+}
+
+/* ========================= */
+/* 📱 SMALL SCREEN FIXES */
 /* ========================= */
 
 @media (max-width: 576px) {
@@ -143,37 +230,4 @@ main.container-fluid,
     font-size: 0.9rem;
     padding: 0.35rem 0.45rem;
   }
-}
-
-/* ========================= */
-/* 🧭 UTILITY FIXES */
-/* ========================= */
-
-.navbar {
-  z-index: 1050;
-}
-
-.modal {
-  z-index: 2000;
-}
-
-/* chart container helper: pastikan Recharts dapat mengukur ukuran elemen */
-.chart-container {
-  width: 100%;
-  height: 320px;
-  min-height: 240px;
-  display: block;
-}
-.chart-container .d-flex.h-100 {
-  height: 100%;
-}
-
-.modal-backdrop-custom {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 1040;
-}
-.modal-custom {
-  z-index: 1050;
 }

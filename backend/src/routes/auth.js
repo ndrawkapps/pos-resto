@@ -4,7 +4,9 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-const JWT_SECRET = process.env.JWT_SECRET || "secret123";
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  "bdHq4ZP$X7xF!9wzKk@E2jNf3tLqG5cA7vV8mY1rH6pD9uR3bC";
 
 // REGISTER USER (admin bisa buat kasir)
 router.post("/register", async (req, res) => {

@@ -1,120 +1,169 @@
 // backend/src/routes/orders.js
 import express from "express";
 import Order from "../models/Order.js";
+import CashRegister from "../models/CashRegister.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
+
 const router = express.Router();
 
-/**
- * GET /api/orders?q=&orderType=&page=&limit=
- * returns { data: [...], meta: { total, page, limit } }
- */
-router.get("/", async (req, res) => {
-  try {
-    const q = (req.query.q || "").trim();
-    const orderType = (req.query.orderType || "").trim();
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(200, Number(req.query.limit) || 50);
+function todayKey() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
-    const filter = {};
-    if (orderType) filter.orderType = orderType;
+// Helper: normalize paymentMethod strings that count as cash
+function paymentIsCash(pm) {
+  if (!pm) return false;
+  const s = String(pm).toLowerCase().trim();
+  const cashVariants = [
+    "cash",
+    "tunai",
+    "cod",
+    "cash-on-delivery",
+    "cash_on_delivery",
+  ];
+  return cashVariants.includes(s);
+}
+
+// GET list (keperluan History)
+router.get("/", verifyToken, async (req, res) => {
+  try {
+    const q = (req.query.q || "").toString().trim();
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.max(
+      1,
+      Math.min(500, parseInt(req.query.limit || "50", 10))
+    );
+    const orderType = req.query.orderType?.toString();
+
+    const filters = {};
+    if (orderType) filters.orderType = orderType;
 
     if (q) {
-      const regex = new RegExp(q, "i");
-      const or = [{ "items.name": regex }];
-      if (!Number.isNaN(Number(q))) or.push({ total: Number(q) });
-      const dt = Date.parse(q);
-      if (!Number.isNaN(dt)) {
-        const start = new Date(dt);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dt);
-        end.setHours(23, 59, 59, 999);
-        or.push({ createdAt: { $gte: start, $lte: end } });
-      }
-      filter.$or = or;
+      const isObjectIdLike = /^[0-9a-fA-F]{24}$/.test(q);
+      if (isObjectIdLike) filters._id = q;
+      else filters["items.name"] = { $regex: q, $options: "i" };
     }
 
-    const total = await Order.countDocuments(filter);
-    const items = await Order.find(filter)
+    const total = await Order.countDocuments(filters);
+    const data = await Order.find(filters)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .lean();
+      .lean()
+      .exec();
 
-    res.json({ data: items, meta: { total, page, limit } });
+    return res.json({ data, total, page, limit });
   } catch (err) {
-    console.error("GET /api/orders error:", err);
-    res.status(500).json({ error: "server error" });
+    console.error("GET /api/orders err:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-/**
- * GET /api/orders/:id
- * return detail order
- */
-router.get("/:id", async (req, res) => {
+// GET detail
+router.get("/:id", verifyToken, async (req, res) => {
   try {
-    const o = await Order.findById(req.params.id).lean();
-    if (!o) return res.status(404).json({ error: "order not found" });
-    res.json(o);
+    const order = await Order.findById(req.params.id).lean();
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    return res.json(order);
   } catch (err) {
     console.error("GET /api/orders/:id err:", err);
-    if (err.name === "CastError")
-      return res.status(400).json({ error: "invalid id" });
-    res.status(500).json({ error: "server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-/**
- * POST /api/orders
- * create order
- */
-router.post("/", async (req, res) => {
+// POST /api/orders (checkout)
+router.post("/", verifyToken, async (req, res) => {
   try {
-    const payload = req.body || {};
-    const items = Array.isArray(payload.items) ? payload.items : [];
-    let total = payload.total;
-    if (total === undefined) {
-      total = items.reduce(
-        (s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 0),
-        0
-      );
+    const {
+      items,
+      total: totalBody,
+      orderType,
+      paymentReceived,
+      paymentMethod,
+    } = req.body || {};
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Items required" });
     }
 
-    const allowed = ["dine in", "takeaway", "grabfood", "shopeefood", "gofood"];
-    const ot =
-      payload.orderType && allowed.includes(payload.orderType)
-        ? payload.orderType
-        : "dine in";
+    // compute total if not provided
+    const computedTotal = items.reduce(
+      (s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0),
+      0
+    );
+    const total = Number(totalBody ?? computedTotal);
 
-    const o = new Order({
+    // create order
+    const order = await Order.create({
       items,
       total,
-      orderType: ot,
-      status: payload.status || "paid",
+      orderType: orderType || "dine in",
+      createdBy: (req.user && (req.user.id || req.user._id)) || null,
+      paymentReceived:
+        paymentReceived != null ? Number(paymentReceived) : undefined,
+      paymentMethod: paymentMethod || null,
     });
-    await o.save();
 
-    // return created order
-    res.status(201).json(o);
-  } catch (err) {
-    console.error("create order err:", err);
-    res.status(400).json({ error: err.message || "bad request" });
-  }
-});
+    // Determine user id robustly
+    const userId =
+      (req.user && (req.user.id || req.user._id || req.user)) || null;
+    if (!userId) {
+      // shouldn't happen if verifyToken works, but safe-guard
+      return res.status(400).json({ message: "User info missing in token" });
+    }
 
-/**
- * DELETE /api/orders/:id
- * delete an order (history)
- */
-router.delete("/:id", async (req, res) => {
-  try {
-    const o = await Order.findByIdAndDelete(req.params.id).lean();
-    if (!o) return res.status(404).json({ error: "order not found" });
-    res.json({ ok: true });
+    // find today's cash register for this user
+    const key = todayKey();
+    const cashRec = await CashRegister.findOne({ user: userId, date: key });
+
+    if (!cashRec) {
+      // prefer to prevent silent create — require opening shift
+      return res.status(400).json({
+        message:
+          "Opening modal belum diinput hari ini. Silakan input modal sebelum transaksi.",
+      });
+    }
+
+    let change = 0;
+    let newBalance =
+      cashRec.balance != null
+        ? Number(cashRec.balance)
+        : Number(cashRec.openingAmount || 0);
+
+    const affectsCash = paymentIsCash(paymentMethod);
+
+    if (paymentReceived != null && !isNaN(Number(paymentReceived))) {
+      const paid = Number(paymentReceived);
+      change = Math.max(0, paid - total);
+
+      if (affectsCash) {
+        // netCash yang benar-benar masuk ke kas = min(paid, total)
+        const netCash = Math.max(0, Math.min(paid, total));
+
+        const updated = await CashRegister.findOneAndUpdate(
+          { user: userId, date: key },
+          { $inc: { balance: netCash } },
+          { new: true }
+        );
+
+        if (updated && updated.balance != null) newBalance = updated.balance;
+      } else {
+        // cashless -> don't alter balance
+        newBalance = cashRec.balance;
+      }
+    } else {
+      // no paymentReceived info (platform handled) -> do not change balance
+      newBalance = cashRec.balance;
+    }
+
+    return res.status(201).json({ success: true, order, change, newBalance });
   } catch (err) {
-    console.error("DELETE /api/orders/:id err:", err);
-    if (err.name === "CastError")
-      return res.status(400).json({ error: "invalid id" });
-    res.status(500).json({ error: "server error" });
+    console.error("POST /api/orders err:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 

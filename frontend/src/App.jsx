@@ -1,214 +1,212 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Link, Navigate } from "react-router-dom";
-import Home from "./pages/Home";
-import Beranda from "./pages/Beranda"; // analytics (admin only)
-import Cashier from "./pages/Cashier";
-import Products from "./pages/Products";
-import Categories from "./pages/Categories";
-import History from "./pages/History";
-import Users from "./pages/Users";
+import React, { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
+import axios from "axios";
+import { useAuth } from "./contexts/AuthContext.jsx";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import OpenShiftModal from "./components/OpenShiftModal.jsx";
+
+import Login from "./pages/Login.jsx";
+import Home from "./pages/Home.jsx";
+import Beranda from "./pages/Beranda.jsx";
+import Cashier from "./pages/Cashier.jsx";
+import Products from "./pages/Products.jsx";
+import Categories from "./pages/Categories.jsx";
+import History from "./pages/History.jsx";
+import Users from "./pages/Users.jsx";
+
 import "bootstrap/dist/css/bootstrap.min.css";
-import "bootstrap/dist/js/bootstrap.bundle.min.js"; // <-- penting agar navbar toggler bekerja
+import "bootstrap/dist/js/bootstrap.bundle.min.js";
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const { user, token, logout } = useAuth(); // token might be from context
+  const [showOpenModal, setShowOpenModal] = useState(false);
 
-  // cek login dari localStorage
   useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
+    let mounted = true;
+    async function checkOpen() {
+      if (!user) return setShowOpenModal(false);
       try {
-        setUser(JSON.parse(stored));
-      } catch {
-        localStorage.removeItem("user");
+        const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
+        const res = await axios.get(`${API}/api/cashregisters/today`, {
+          headers: {
+            Authorization: token
+              ? `Bearer ${token}`
+              : localStorage.getItem("token")
+              ? `Bearer ${localStorage.getItem("token")}`
+              : undefined,
+          },
+        });
+        if (!mounted) return;
+        if (res.data?.exists === false) setShowOpenModal(true);
+        else setShowOpenModal(false);
+      } catch (err) {
+        console.warn(
+          "checkOpen err",
+          err?.response?.data || err.message || err
+        );
+        if (err?.response?.status === 401) logout();
       }
     }
-  }, []);
+    checkOpen();
+    return () => {
+      mounted = false;
+    };
+  }, [user, token, logout]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
-
-      // inside handleLogin:
-      const res = await fetch(`${API}/api/users/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "Login gagal");
-        throw new Error(txt || "Login gagal");
-      }
-      const data = await res.json();
-      localStorage.setItem("user", JSON.stringify(data.user));
-      setUser(data.user);
-      setUsername("");
-      setPassword("");
-    } catch (err) {
-      alert("Login gagal: " + (err?.message || err));
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    setUser(null);
-  };
-
-  // jika belum login -> tampilkan form login (tidak merender Router)
-  if (!user) {
-    return (
-      <div className="container mt-5">
-        <h3 className="mb-4">Login POS Resto</h3>
-        <form onSubmit={handleLogin}>
-          <div className="mb-3">
-            <label className="form-label">Username</label>
-            <input
-              type="text"
-              className="form-control"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-          <div className="mb-3">
-            <label className="form-label">Password</label>
-            <input
-              type="password"
-              className="form-control"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="btn btn-primary w-100">
-            Login
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // jika sudah login -> render aplikasi
   return (
     <BrowserRouter>
-      <nav className="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
-        <div className="container-fluid">
-          <Link className="navbar-brand" to="/">
-            POS Resto
-          </Link>
+      {user && (
+        <nav className="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+          <div className="container-fluid">
+            <Link className="navbar-brand" to="/">
+              POS Resto
+            </Link>
 
-          <button
-            className="navbar-toggler"
-            type="button"
-            data-bs-toggle="collapse"
-            data-bs-target="#mainNav"
-            aria-controls="mainNav"
-            aria-expanded="false"
-            aria-label="Toggle navigation"
-          >
-            <span className="navbar-toggler-icon" />
-          </button>
+            <button
+              className="navbar-toggler"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#mainNav"
+            >
+              <span className="navbar-toggler-icon" />
+            </button>
 
-          <div className="collapse navbar-collapse" id="mainNav">
-            <ul className="navbar-nav ms-auto">
-              {/* Beranda hanya untuk admin */}
-              {user?.role === "admin" && (
+            <div className="collapse navbar-collapse" id="mainNav">
+              <ul className="navbar-nav ms-auto">
+                {user.role === "admin" && (
+                  <li className="nav-item">
+                    <Link className="nav-link" to="/beranda">
+                      Beranda
+                    </Link>
+                  </li>
+                )}
                 <li className="nav-item">
-                  <Link className="nav-link" to="/beranda">
-                    Beranda
+                  <Link className="nav-link" to="/cashier">
+                    Kasir
                   </Link>
                 </li>
-              )}
 
-              <li className="nav-item">
-                <Link className="nav-link" to="/cashier">
-                  Kasir
-                </Link>
-              </li>
+                {user.role === "admin" && (
+                  <>
+                    <li className="nav-item">
+                      <Link className="nav-link" to="/products">
+                        Produk
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link className="nav-link" to="/categories">
+                        Kategori
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link className="nav-link" to="/users">
+                        User
+                      </Link>
+                    </li>
+                  </>
+                )}
 
-              {/* Menu admin */}
-              {user?.role === "admin" && (
-                <>
-                  <li className="nav-item">
-                    <Link className="nav-link" to="/products">
-                      Produk
-                    </Link>
-                  </li>
-                  <li className="nav-item">
-                    <Link className="nav-link" to="/categories">
-                      Kategori
-                    </Link>
-                  </li>
-                  <li className="nav-item">
-                    <Link className="nav-link" to="/users">
-                      User
-                    </Link>
-                  </li>
-                </>
-              )}
+                <li className="nav-item">
+                  <Link className="nav-link" to="/history">
+                    Riwayat
+                  </Link>
+                </li>
 
-              {/* Menu umum */}
-              <li className="nav-item">
-                <Link className="nav-link" to="/history">
-                  Riwayat
-                </Link>
-              </li>
-
-              <li className="nav-item">
-                <button
-                  onClick={handleLogout}
-                  className="btn btn-outline-light ms-3"
-                  type="button"
-                >
-                  Logout ({user.username})
-                </button>
-              </li>
-            </ul>
+                <li className="nav-item">
+                  <button
+                    onClick={logout}
+                    className="btn btn-outline-light ms-3"
+                    type="button"
+                  >
+                    Logout ({user.username})
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      )}
 
       <main
         className="main-content container-fluid my-4 px-3"
-        style={{ paddingTop: 8 }}
+        style={{ paddingTop: 72 }}
       >
         <div className="container-lg">
           <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/cashier" element={<Cashier />} />
-            <Route path="/history" element={<History />} />
+            <Route
+              path="/login"
+              element={user ? <Navigate to="/" replace /> : <Login />}
+            />
 
-            {/* Admin only routes */}
-            {user?.role === "admin" && (
-              <>
-                <Route path="/products" element={<Products />} />
-                <Route path="/categories" element={<Categories />} />
-                <Route path="/users" element={<Users />} />
-                <Route path="/beranda" element={<Beranda />} />
-              </>
-            )}
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Home />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cashier"
+              element={
+                <ProtectedRoute>
+                  <Cashier />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/history"
+              element={
+                <ProtectedRoute>
+                  <History />
+                </ProtectedRoute>
+              }
+            />
 
-            {/* Redirect non-admin away from admin routes */}
-            {user?.role !== "admin" && (
-              <>
-                <Route path="/products" element={<Navigate to="/" replace />} />
-                <Route
-                  path="/categories"
-                  element={<Navigate to="/" replace />}
-                />
-                <Route path="/users" element={<Navigate to="/" replace />} />
-                <Route path="/beranda" element={<Navigate to="/" replace />} />
-              </>
-            )}
+            <Route
+              path="/products"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <Products />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/categories"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <Categories />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <Users />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beranda"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <Beranda />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </div>
       </main>
+
+      <OpenShiftModal
+        show={showOpenModal}
+        token={token || localStorage.getItem("token")}
+        onClose={(success) => setShowOpenModal(false)}
+      />
     </BrowserRouter>
   );
 }

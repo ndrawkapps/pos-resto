@@ -138,39 +138,42 @@ export default function Cashier() {
     const created = orderData?.createdAt
       ? new Date(orderData.createdAt)
       : new Date();
+
     const itemsHtml = (orderData.items || [])
-      .map(
-        (
-          it
-        ) => `<div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <div style="max-width:200px;word-wrap:break-word">${String(
-            it.name
-          )}</div>
-          <div style="margin-left:8px">${fmt(
-            (it.price || 0) * (it.qty || 0)
-          )}</div>
-        </div>`
-      )
+      .map((it) => {
+        const qty = Number(it.qty || 0);
+        const unit = Number(it.price || 0);
+        const lineTotal = qty * unit;
+        return `<div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <div style="max-width:140px;word-wrap:break-word">
+          <div style="font-weight:600">${String(it.name)}</div>
+          <div style="font-size:11px;color:#555">x${qty} × Rp ${fmt(unit)}</div>
+        </div>
+        <div style="margin-left:8px">Rp ${fmt(lineTotal)}</div>
+      </div>`;
+      })
       .join("");
+
     const html = `
-      <html><head><title>Receipt</title>
-      <style>
-        body { font-family: monospace; font-size:12px; width:280px; margin:8px; }
-        h2 { text-align:center; margin:6px 0; font-size:14px }
-        .divider { border-top:1px dashed #000; margin:8px 0; }
-      </style>
-      </head><body>
-      <h2>POS Resto</h2>
-      <div class="muted">Tipe: ${orderData.orderType || ""}</div>
-      <div class="muted">Tanggal: ${created.toLocaleString()}</div>
-      <div class="divider"></div>
-      ${itemsHtml}
-      <div class="divider"></div>
-      <div style="display:flex;justify-content:space-between;font-weight:bold;">
-        <div>Total</div><div>${fmt(orderData.total)}</div>
-      </div>
-      </body></html>
-    `;
+    <html><head><title>Receipt</title>
+    <style>
+      body { font-family: monospace; font-size:12px; width:280px; margin:8px; }
+      h2 { text-align:center; margin:6px 0; font-size:14px }
+      .divider { border-top:1px dashed #000; margin:8px 0; }
+      .muted { color: #666; font-size: 12px; }
+    </style>
+    </head><body>
+    <h2>POS Resto</h2>
+    <div class="muted">Tipe: ${orderData.orderType || ""}</div>
+    <div class="muted">Tanggal: ${created.toLocaleString()}</div>
+    <div class="divider"></div>
+    ${itemsHtml}
+    <div class="divider"></div>
+    <div style="display:flex;justify-content:space-between;font-weight:bold;">
+      <div>Total</div><div>Rp ${fmt(orderData.total)}</div>
+    </div>
+    </body></html>
+  `;
     win.document.open();
     win.document.write(html);
     win.document.close();

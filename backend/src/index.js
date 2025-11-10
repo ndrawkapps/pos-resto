@@ -19,19 +19,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// serve uploads
+// __dirname helper for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// --- Serve uploaded files (API asset) ---
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
-// Routes
+// --- Serve frontend build when exists ---
+// Adjust 'frontendBuildPath' if your frontend build output is placed elsewhere
+const frontendBuildPath = path.join(__dirname, "..", "frontend", "dist");
+app.use(express.static(frontendBuildPath));
+
+// --- API Routes (keep these before the SPA catch-all) ---
 app.use("/api/products", productsRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/analytics", analyticsRoutes);
 
-// ✅ added: universal health & root routes
+// Health & root
 app.get("/health", (req, res) =>
   res.status(200).json({
     ok: true,
@@ -51,7 +58,26 @@ app.get("/", (req, res) => {
   `);
 });
 
-// ✅ make sure PORT uses Render's dynamic port
+// --- SPA fallback: jika request bukan untuk /api atau /uploads, return index.html ---
+// Important: place this AFTER all API and static middleware
+app.get("*", (req, res, next) => {
+  // jika ini request ke API atau ke uploads, lanjut (biarkan 404 API normal atau middleware lain)
+  if (req.path.startsWith("/api") || req.path.startsWith("/uploads")) {
+    return next();
+  }
+
+  // kirimkan index.html dari frontend build jika ada
+  const indexHtml = path.join(frontendBuildPath, "index.html");
+  return res.sendFile(indexHtml, function (err) {
+    if (err) {
+      // jika index.html tidak ditemukan, lempar 404 agar masalah terlihat
+      console.error("Failed to send index.html for SPA fallback:", err);
+      return res.status(404).send("Not found");
+    }
+  });
+});
+
+// --- DB + server start ---
 const PORT = process.env.PORT || 4000;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/pos_resto";
@@ -61,7 +87,7 @@ mongoose
   .then(async () => {
     console.log("Connected to MongoDB");
 
-    // Cek apakah admin default sudah ada
+    // create default admin jika belum ada
     const adminExists = await User.findOne({ username: "admin" });
     if (!adminExists) {
       const hashed = await bcrypt.hash("admin123", 10);
@@ -76,7 +102,6 @@ mongoose
       );
     }
 
-    // ✅ log the dynamic URL (will use Render port in production)
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((err) => {

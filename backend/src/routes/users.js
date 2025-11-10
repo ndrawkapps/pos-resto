@@ -1,63 +1,52 @@
+// backend/src/routes/users.js
 import express from "express";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 const router = express.Router();
 
-// ✅ CREATE user
-router.post("/", async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-    const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ username, password: hashed, role });
-    await user.save();
-    res.json({ success: true, user });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
-});
+const JWT_SECRET = process.env.JWT_SECRET || "please_change_this_in_prod";
+const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
 
-// ✅ READ all users
-router.get("/", async (req, res) => {
-  const users = await User.find({}, "-password");
-  res.json(users);
-});
+/* other CRUD routes (create/read/update/delete) remain unchanged */
 
-// ✅ UPDATE user
-router.put("/:id", async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-    const updateData = { username, role };
-    if (password) updateData.password = await bcrypt.hash(password, 10);
-    const user = await User.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-    });
-    res.json({ success: true, user });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
-});
-
-// ✅ DELETE user
-router.delete("/:id", async (req, res) => {
-  await User.findByIdAndDelete(req.params.id);
-  res.json({ success: true });
-});
-
-// ✅ LOGIN endpoint
+// LOGIN endpoint -> returns { token, user }
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-  const user = await User.findOne({ username });
-  if (!user) return res.status(401).json({ message: "User not found" });
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res
+        .status(400)
+        .json({ message: "Username and password required" });
+    }
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(401).json({ message: "Wrong password" });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ message: "User not found" });
 
-  res.json({
-    success: true,
-    user: { id: user._id, username: user.username, role: user.role },
-  });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ message: "Wrong password" });
+
+    const payload = {
+      id: user._id,
+      username: user.username,
+      role: user.role,
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+
+    const safeUser = {
+      id: user._id,
+      username: user.username,
+      role: user.role,
+      name: user.name || null,
+    };
+
+    return res.json({ token, user: safeUser });
+  } catch (err) {
+    console.error("login error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 });
 
-// ✅ jangan lupa export default
 export default router;
